@@ -1,5 +1,12 @@
 # rmdesk
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/)
+[![Qt for Python](https://img.shields.io/badge/GUI-PySide6%20(Qt%206)-41CD52.svg?logo=qt&logoColor=white)](https://doc.qt.io/qtforpython-6/)
+[![Platform: Linux](https://img.shields.io/badge/platform-Linux-FCC624.svg?logo=linux&logoColor=black)](#requirements)
+[![reMarkable 2](https://img.shields.io/badge/reMarkable%202-fw%203.29-222222.svg)](#requirements)
+[![No cloud](https://img.shields.io/badge/cloud-not%20needed-success.svg)](#how-it-keeps-your-notes-safe)
+
 A Linux desktop app for the **reMarkable 2**. It lets you:
 
 - see the tablet's screen live and **control it from your PC** (mouse = touch, keyboard = typing);
@@ -7,6 +14,8 @@ A Linux desktop app for the **reMarkable 2**. It lets you:
 - **manage files**: upload PDFs and EPUBs, save notebooks as PDF, move things to the trash.
 
 It talks to the tablet over USB or Wi-Fi using SSH. Nothing goes through the reMarkable cloud.
+
+![The Screen view: the tablet's page live on the desktop](docs/screenshots/screen.png)
 
 > rmdesk is an independent project. It is not made by or affiliated with reMarkable AS. It changes files on your tablet, carefully and with backups, but use it at your own risk. It was developed and tested on a reMarkable 2 with firmware **3.29.1.0**.
 
@@ -31,6 +40,14 @@ It talks to the tablet over USB or Wi-Fi using SSH. Nothing goes through the reM
 ---
 
 ## Features
+
+| Place items on the page | Manage files |
+|---|---|
+| ![Place mode: ink text and an arrow over the live page](docs/screenshots/place.png) | ![The Files view](docs/screenshots/files.png) |
+| **Connect** | **Device and settings** |
+| ![The connection screen shown until the tablet is found](docs/screenshots/connect.png) | ![The Device view](docs/screenshots/device.png) |
+
+<sub>The screenshots show a made-up demo page and library. Regenerate them with `python scripts/screenshots.py`.</sub>
 
 **Screen**
 - A live picture of the tablet, with rotation (remembered), screenshots and an **Expand** mode where the picture fills the window.

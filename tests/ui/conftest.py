@@ -1,6 +1,6 @@
 import os
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ["QT_QPA_PLATFORM"] = "offscreen"  # never real windows, even from a desktop shell
 
 import pytest
 
