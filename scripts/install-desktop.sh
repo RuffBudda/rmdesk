@@ -10,6 +10,7 @@ mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications" \
          "$HOME/.local/share/icons/hicolor/scalable/apps"
 cat > "$HOME/.local/bin/rmdesk" <<LAUNCH
 #!/usr/bin/env bash
+export PYTHONPYCACHEPREFIX="\$HOME/.cache/rmdesk/pycache"  # keep the source folder clean
 exec "$VENV/bin/python" -m rmdesk "\$@"
 LAUNCH
 chmod +x "$HOME/.local/bin/rmdesk"
@@ -24,6 +25,7 @@ Terminal=false
 Type=Application
 Categories=Utility;
 Keywords=remarkable;tablet;rm2;notebook;screen;
+StartupWMClass=rmdesk
 DESK
 command -v update-desktop-database >/dev/null && update-desktop-database "$HOME/.local/share/applications" || true
 echo "Installed: run 'rmdesk' or pick rmdesk in your app menu."

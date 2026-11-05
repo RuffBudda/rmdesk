@@ -92,7 +92,21 @@ It talks to the tablet over USB or Wi-Fi using SSH. Nothing goes through the reM
 
 ## Install
 
+### On Omarchy: the bar button
+
+rmdesk is also an [Omarchy](https://omarchy.org) shell plugin: a tablet button on the bar that opens rmdesk, or focuses it when it is already open.
+
+```bash
+omarchy plugin add https://github.com/RuffBudda/rmdesk.git --enable
+```
+
+Then click the tablet icon on the bar. The first time, it opens a terminal that explains what it will install and asks before doing it; that runs the same steps as 2 and 5 below from the plugin's folder (`~/.config/omarchy/plugins/io.github.ruffbudda.rmdesk`). After that, a click starts rmdesk. `omarchy plugin update io.github.ruffbudda.rmdesk` updates both the button and the app.
+
+You can also install the release by hand with the steps below; the bar button finds an rmdesk installed either way.
+
 ### 1. Get the code
+
+Download the latest release from the [Releases page](https://github.com/RuffBudda/rmdesk/releases), or:
 
 ```bash
 git clone https://github.com/RuffBudda/rmdesk.git
@@ -106,6 +120,8 @@ cd rmdesk
 ```bash
 scripts/setup-venv.sh
 ```
+
+(`scripts/install.sh` runs this and step 5 together, after asking.)
 
 It:
 - installs the needed packages with `pacman` (it asks for your password with `sudo`): `pyside6 python-paramiko python-keyring python-opencv python-numpy python-requests python-websocket-client python-pytest python-pytest-qt`;
@@ -153,6 +169,26 @@ cd rmdesk
 git pull
 ~/.local/share/rmdesk/venv/bin/pip install -e .
 ```
+
+With the Omarchy plugin: `omarchy plugin update io.github.ruffbudda.rmdesk`.
+
+### Uninstalling
+
+```bash
+scripts/uninstall.sh           # the app, its launcher, menu entry and Python environment
+scripts/uninstall.sh --purge   # also your settings, logs and page backups
+```
+
+The system packages stay installed. A tablet password you saved stays in your keyring under `rmdesk` until you remove it there.
+
+On Omarchy, run the script from the plugin's folder first, then remove the bar button:
+
+```bash
+~/.config/omarchy/plugins/io.github.ruffbudda.rmdesk/scripts/uninstall.sh
+omarchy plugin remove io.github.ruffbudda.rmdesk
+```
+
+Uninstalling doesn't change your tablet. If you installed screen streaming or turned on Fast USB uploads, undo them first in **Device** (Screen streaming → **Uninstall**, Fast USB uploads → turn off).
 
 ---
 

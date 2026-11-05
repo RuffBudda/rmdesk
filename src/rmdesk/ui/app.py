@@ -267,6 +267,10 @@ def setup_logging(path: Path = LOG_PATH) -> None:
 def main() -> int:
     setup_logging()
     app = QApplication.instance() or QApplication(sys.argv)
+    # the window's Wayland app id (Hyprland "class"): matches rmdesk.desktop, so the app menu
+    # icon and the Omarchy bar button (which focuses an open rmdesk) find the window
+    app.setDesktopFileName("rmdesk")
+    app.setApplicationName("rmdesk")
     app.setStyleSheet(load_theme())
     cfg = config.load()
     conn = Connection(cfg, persist=config.save)
