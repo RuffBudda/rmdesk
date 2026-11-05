@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rmdesk"
+version = "0.1.0"
+description = "Desktop app for the reMarkable 2: files, screen share, ink on notebook pages"
+requires-python = ">=3.12"
+# PySide6, paramiko, keyring, opencv, numpy, requests, websocket-client, pytest and
+# pytest-qt come from system pacman packages via --system-site-packages.
+dependencies = [
+    "zstandard; python_version < '3.14'",  # 3.14+ has compression.zstd built in
+    "rmscene==0.8.0",
+    "rmc @ git+https://github.com/ricklupton/rmc@da87813a31496d156ca6ea8a27bf5128670fb45a",
+    "Hershey-Fonts",
+]
+
+[project.scripts]
+rmdesk = "rmdesk.ui.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+
+[tool.setuptools.package-data]
+"rmdesk.ui" = ["icons/*.svg", "icons/README.md"]
