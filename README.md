@@ -26,6 +26,7 @@ It talks to the tablet over USB or Wi-Fi using SSH. Nothing goes through the reM
 10. [Troubleshooting](#troubleshooting)
 11. [Development](#development)
 12. [Credits](#credits)
+13. [License](#license)
 
 ---
 
@@ -302,3 +303,9 @@ Project layout:
 - [Hershey-Fonts](https://pypi.org/project/Hershey-Fonts/): the single-stroke fonts used for ink text.
 - [Tesseract OCR](https://github.com/tesseract-ocr/tesseract): Sharp text.
 - reMarkable is a trademark of reMarkable AS.
+
+---
+
+## License
+
+MIT. See [LICENSE](LICENSE).

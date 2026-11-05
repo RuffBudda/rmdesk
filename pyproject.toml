@@ -7,6 +7,7 @@ name = "rmdesk"
 version = "0.1.0"
 description = "Desktop app for the reMarkable 2: files, screen share, ink on notebook pages"
 requires-python = ">=3.12"
+license = "MIT"
 # PySide6, paramiko, keyring, opencv, numpy, requests, websocket-client, pytest and
 # pytest-qt come from system pacman packages via --system-site-packages.
 dependencies = [
