@@ -10,8 +10,8 @@ import json
 import threading
 from typing import Callable, Iterable, Iterator
 
-from rmdesk.stream.client import (HEIGHT, PORT, USERNAME, WIDTH, StreamError, _Run,
-                                  _tablet_context)
+from rmdesk.stream.client import (HEIGHT, PORT, USERNAME, WIDTH, Dial, StreamError, _Run,
+                                  _tablet_context, open_connection)
 
 ABS_X, ABS_Y, ABS_PRESSURE, ABS_DISTANCE = 0, 1, 24, 25
 MAX_X, MAX_Y = 15725, 20966  # RM2 axis ranges (const.go:17-20); note the swapped axes
@@ -80,13 +80,14 @@ class PenClient:
 
     def __init__(self, host: str, password: str,
                  on_pen: Callable[[float, float, bool], None], *,
-                 port: int = PORT, username: str = USERNAME, retry_delay: float = 2.0,
+                 dial: Dial, port: int = PORT, username: str = USERNAME, retry_delay: float = 2.0,
                  connect_timeout: float = 5.0,
                  on_error: Callable[[Exception], None] | None = None):
         self.host, self.port = host, port
         self._username, self._password = username, password
         self.on_pen, self.on_error = on_pen, on_error
         self.retry_delay, self.connect_timeout = retry_delay, connect_timeout
+        self._dial = dial
         self._ctx = _tablet_context()
         self._run: _Run | None = None
 
@@ -117,8 +118,8 @@ class PenClient:
         return run is not None and run.thread is not None and run.thread.is_alive()
 
     def _conn(self, run: _Run) -> http.client.HTTPSConnection:
-        conn = http.client.HTTPSConnection(self.host, self.port, timeout=self.connect_timeout,
-                                           context=self._ctx)
+        conn = open_connection(self._dial, self.host, self.port, self.connect_timeout,
+                               self._ctx)
         with run.lock:
             run.conn = conn
         if run.stop.is_set():

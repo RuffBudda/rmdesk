@@ -638,3 +638,38 @@ def test_ask_before_writing_setting(qtbot):
     assert not view.confirm_check.isChecked()  # off by default: Send sends
     view.confirm_check.setChecked(True)
     assert cfg.confirm_sends is True and saved == [True]
+
+
+def test_unknown_wifi_key_offers_trust_and_saves_it(qtbot, tmp_path, monkeypatch):
+    import paramiko
+    from rmdesk import device as devmod
+    from rmdesk.connection import USB_HOST
+    key = paramiko.RSAKey.generate(1024)
+    good = make_device()
+
+    def factory(host, password):
+        if host == USB_HOST:
+            raise OSError("no usb")
+        if paramiko.HostKeys(str(kh)).lookup(host) if kh.exists() else None:
+            return good
+        raise devmod.UnknownHostKey(host, key)
+
+    kh = tmp_path / "known_hosts"
+    cfg = Config(wifi_ip="192.168.1.50")
+    conn = Connection(cfg, factory=factory, secrets=NoSecrets(), sleep=lambda s: None,
+                      persist=lambda c: None)
+    view = DeviceView(conn, cfg, save_config=lambda c: None, known_hosts=kh)
+    qtbot.addWidget(view)
+    view.connect_now()
+    qtbot.waitUntil(lambda: view.trust_btn.isVisibleTo(view), timeout=5000)
+    assert devmod.fingerprint(key) in view.message.text()
+    assert not view.forget_btn.isVisibleTo(view)
+
+    asked = []
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: asked.append(a[2]) or QMessageBox.StandardButton.Yes)
+    view.trust_btn.click()
+    assert devmod.fingerprint(key) in asked[0]
+    qtbot.waitUntil(lambda: conn.device is good, timeout=5000)
+    assert paramiko.HostKeys(str(kh)).lookup("192.168.1.50")
+    assert not view.trust_btn.isVisibleTo(view)

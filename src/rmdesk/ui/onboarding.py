@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QPushButton, QSiz
                                QVBoxLayout, QWidget)
 
 from rmdesk.connection import USB_HOST, Connection, State
-from rmdesk.device import HostKeyChanged
+from rmdesk.device import HostKeyChanged, UnknownHostKey
 from rmdesk.ui.device_view import (HOST_KEY_MSG, PASSPHRASE_HINT, PASSWORD_HINT, DeviceView)
 from rmdesk.ui.theme import TOKENS, icon
 from rmdesk.ui.widgets import Card
@@ -42,6 +42,10 @@ WIFI_SSH_OFF_HELP = ("The tablet answers on Wi-Fi but doesn't let rmdesk in ther
                      "it with the USB cable, or turn on SSH over Wi-Fi on the tablet (over "
                      "USB, run rm-ssh-over-wlan on).")
 KEY_CHANGED = "The tablet's security key changed"
+UNKNOWN_KEY = "rmdesk doesn't know this tablet's key yet"
+UNKNOWN_KEY_HELP = ("Over Wi-Fi rmdesk only sends your password to a tablet whose key it "
+                    "knows. Connect once with the USB cable, or open settings to check and "
+                    "trust the key.")
 NOT_FOUND = "Couldn't find your reMarkable"
 NOT_FOUND_HELP = "Plug it in with its USB cable and wake it up."
 NOT_FOUND_WIFI = (" For Wi-Fi, check that it is awake on the same network as this computer "
@@ -82,6 +86,9 @@ def connect_problem(conn: Connection) -> Problem:
     every = list(errs.values()) + ([err] if err is not None and err not in errs.values() else [])
     if any(isinstance(e, HostKeyChanged) for e in every):
         return Problem(KEY_CHANGED, f"{HOST_KEY_MSG} Open settings to forget the saved key.")
+    if any(isinstance(e, UnknownHostKey) for e in every) and not any(
+            _is_auth(e) for e in every):
+        return Problem(UNKNOWN_KEY, UNKNOWN_KEY_HELP)
     if any(_is_auth(e) for e in every):
         if conn.password_used:
             return Problem(WRONG_PASSWORD, WRONG_PASSWORD_HELP, True)

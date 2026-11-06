@@ -124,9 +124,9 @@ scripts/setup-venv.sh
 (`scripts/install.sh` runs this and step 5 together, after asking.)
 
 It:
-- installs the needed packages with `pacman` (it asks for your password with `sudo`): `pyside6 python-paramiko python-keyring python-opencv python-numpy python-requests python-websocket-client python-pytest python-pytest-qt`;
+- installs the needed packages with `pacman` (it asks for your password with `sudo`): `pyside6 python-paramiko python-keyring python-opencv python-numpy python-requests python-websocket-client`;
 - creates a Python environment in `~/.local/share/rmdesk/venv`, which uses the system packages above;
-- installs rmdesk into it, together with `rmscene`, `rmc` and `Hershey-Fonts` from PyPI and GitHub.
+- installs rmdesk into it, together with `rmscene`, `Hershey-Fonts` and (on Python older than 3.14) `zstandard` from PyPI, and `rmc` from GitHub, pinned to commit `da87813`.
 
 **Other distributions:** install the equivalents of the packages above (Qt 6 / PySide6, paramiko, keyring, OpenCV for Python, NumPy, requests, websocket-client) with your package manager, then:
 
@@ -179,7 +179,7 @@ scripts/uninstall.sh           # the app, its launcher, menu entry and Python en
 scripts/uninstall.sh --purge   # also your settings, logs and page backups
 ```
 
-The system packages stay installed. A tablet password you saved stays in your keyring under `rmdesk` until you remove it there.
+The system packages stay installed. Passwords rmdesk saved stay in your keyring (services `rmdesk` and `rmdesk-stream`) unless you accept removing them during `--purge`.
 
 On Omarchy, run the script from the plugin's folder first, then remove the bar button:
 
@@ -203,7 +203,7 @@ Uninstalling doesn't change your tablet. If you installed screen streaming or tu
    ```
 
    Then enter the tablet's Wi-Fi IP address in rmdesk. With this on, anyone on the same network who knows the tablet's password can log in to it, so keep it to trusted networks. Turn it off again with `rm-ssh-over-wlan off`. Pressing **Install my SSH key** in rmdesk's Device page lets rmdesk log in with your SSH key instead of the password.
-4. **Screen streaming:** rmdesk's live picture uses [goMarkableStream](https://github.com/owulveryck/goMarkableStream) on the tablet. The first time, open **Device** (the connection button at the top right of the Screen view) and press **Install** under *Screen streaming*. rmdesk downloads the release that matches your firmware, checks its checksum and sets it up.
+4. **Screen streaming:** rmdesk's live picture uses [goMarkableStream](https://github.com/owulveryck/goMarkableStream) on the tablet. The first time, open **Device** (the connection button at the top right of the Screen view) and press **Install** under *Screen streaming*. rmdesk downloads the release that matches your firmware, checks its checksum and sets it up. The service listens only on the tablet's own loopback (`127.0.0.1:2001`), never on your network: rmdesk reaches it through its SSH connection, whose host key it checks, and logs in with a random password kept in your keyring. A stream installed by rmdesk 0.1.0 (which listened on every network) is moved to the loopback the next time the Screen view starts it.
 
 ---
 
@@ -326,6 +326,8 @@ Other safeguards:
 ---
 
 ## Development
+
+The tests need pytest and pytest-qt: `scripts/setup-venv.sh --dev` installs them.
 
 ```bash
 QT_QPA_PLATFORM=offscreen timeout 600 ~/.local/share/rmdesk/venv/bin/python -m pytest -q

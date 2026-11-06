@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from rmdesk.config import Config
+from rmdesk import ids
 from rmdesk.device import Device, DeviceError
 from rmdesk.library.model import XOCHITL
 from rmdesk.notebook import page as pagemod
@@ -382,7 +383,7 @@ def backup_page(device: Device, notebook_id: str, page_id: str, root: Path = BAC
     """A page-scoped backup: <id>/<page_id>.rm (when it exists) plus <id>.content and
     <id>.metadata, nothing else of the notebook is read. Same layout, checks and
     manifest as backup(), with "scope": "page" and "page_id" in the manifest."""
-    if not page_id or "/" in page_id or page_id in (".", ".."):
+    if not ids.is_safe(page_id):
         raise BackupError(f"bad page id: {page_id!r}")
 
     def rels() -> list[str]:
@@ -398,6 +399,8 @@ def backup_page(device: Device, notebook_id: str, page_id: str, root: Path = BAC
 def _backup(device: Device, notebook_id: str, list_files: Callable[[], list[str]],
             extra: dict, root: Path, now: Now | None) -> Path:
     now = now or datetime.now
+    if not ids.is_safe(notebook_id):
+        raise BackupError(f"bad notebook id: {notebook_id!r}")
     try:
         bdir = _new_backup_dir(root, notebook_id, now)
     except OSError as e:
@@ -581,6 +584,8 @@ def _write_stopped(device: Device, notebook_id: str, page_id: str, new_page: byt
     `page_scoped`: back up only the page plus .content and .metadata (backup_page)
     instead of the whole notebook; the write only ever replaces that page.
     """
+    if not (ids.is_safe(notebook_id) and ids.is_safe(page_id)):
+        raise BackupError(f"bad notebook or page id: {notebook_id!r}, {page_id!r}")
     rel = f"{notebook_id}/{page_id}.rm"
     dst = f"{XOCHITL}/{rel}"
     tmp = dst + TMP_SUFFIX

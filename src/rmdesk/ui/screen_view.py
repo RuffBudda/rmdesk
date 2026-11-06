@@ -26,7 +26,7 @@ from rmdesk.device import DeviceError
 from rmdesk.library.ops import UPLOAD_SUFFIXES
 from rmdesk.stream import install as gms
 from rmdesk.stream.catchup import DELAY as CATCHUP_DELAY, CatchUp
-from rmdesk.stream.client import Frame, StreamClient
+from rmdesk.stream.client import Frame, StreamClient, StreamError
 from rmdesk.stream.events import PenClient
 from rmdesk.ui.compose.shade_job import AUTO as AUTO_STYLE
 from rmdesk.ui.live_compose import IMAGE_SUFFIXES, LiveCompose
@@ -433,7 +433,8 @@ class ScreenView(QWidget):
     fullscreen_changed = Signal(bool)  # expanded: the window hides its status bar
 
     def __init__(self, conn: Connection, *, client_factory=StreamClient, pen_factory=PenClient,
-                 status_fn=gms.status, restart_fn=gms.restart, keep_default: bool = True,
+                 status_fn=gms.status, restart_fn=gms.restart,
+                 local_only_fn=gms.ensure_local_only, keep_default: bool = True,
                  control_default: bool = True, secrets: gms.SecretStore | None = None,
                  pictures_dir: Path | None = None, catchup_delay: float = CATCHUP_DELAY,
                  keep_interval: float = KEEP_INTERVAL, cfg: Config | None = None,
@@ -447,6 +448,7 @@ class ScreenView(QWidget):
         self._client_factory, self._pen_factory = client_factory, pen_factory
         self._status_fn, self._secrets = status_fn, secrets
         self._restart_fn = restart_fn
+        self._local_only_fn = local_only_fn
         self._restarting = False
         # the Refresh button's run: None, "restart" (the service restarts) or "frame" (resynced,
         # waiting for the first new frame); _refresh_token tells a late callback it is stale
@@ -878,6 +880,9 @@ class ScreenView(QWidget):
             raise _Problem(UNSUPPORTED_MSG)
         if dev is None:
             raise _Problem(OFFLINE_MSG)
+        # a stream installed by rmdesk 0.1.0 listens on every interface: move it to the
+        # tablet's loopback (it restarts; the client's retries cover that)
+        self._local_only_fn(dev)
         st = self._status_fn(dev)
         if st == "missing":
             raise _Problem(NOT_INSTALLED_MSG)
@@ -885,15 +890,24 @@ class ScreenView(QWidget):
             raise _Problem(NOT_RUNNING_MSG)
         user, password = self._credentials()
         client = self._client_factory(host, password, self._on_frame_thread, username=user,
-                                      on_error=self._on_error_thread)
+                                      dial=self._dial, on_error=self._on_error_thread)
         client.start()
         return client
 
     def _start_pen(self, host: str):
         user, password = self._credentials()
-        client = self._pen_factory(host, password, self._on_pen_thread, username=user)
+        client = self._pen_factory(host, password, self._on_pen_thread, username=user,
+                                   dial=self._dial)
         client.start()
         return client
+
+    def _dial(self, timeout: float):
+        """A socket to goMarkableStream through the current SSH connection (the service
+        listens on the tablet's loopback only). Called on the client threads."""
+        dev = self.conn.device
+        if dev is None:
+            raise StreamError("the tablet is offline")
+        return dev.open_tunnel(gms.PORT, timeout=timeout)
 
     @staticmethod
     def _stop_client(client) -> None:

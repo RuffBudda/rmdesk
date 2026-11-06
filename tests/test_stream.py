@@ -17,9 +17,23 @@ import pytest
 
 from rmdesk.device import CommandResult
 from rmdesk.stream import install
-from rmdesk.stream.client import Decoder, Frame, ProtocolError, StreamClient
+import socket
+
+from rmdesk.stream.client import Decoder, Frame, ProtocolError
+from rmdesk.stream.client import PORT as STREAM_PORT
+from rmdesk.stream.client import StreamClient as _StreamClient
 from tests import stream_fixtures as sf
 from tests.fakes import FakeDevice
+
+
+def tcp_dial(host: str, port: int):
+    """The tests' stand-in for SshDevice.open_tunnel: a plain TCP socket to the fake server."""
+    return lambda timeout: socket.create_connection((host, port), timeout)
+
+
+def StreamClient(host, password, on_frame, *, port=STREAM_PORT, **kw):
+    kw.setdefault("dial", tcp_dial(host, port))
+    return _StreamClient(host, password, on_frame, port=port, **kw)
 
 W, H = 1404, 1872
 
@@ -376,7 +390,8 @@ def test_install_writes_password_env(no_pin):
     assert lines == ["# goMarkableStream Environment Configuration",
                      "# RK_SERVER_PASSWORD=password",
                      "RK_DELTA_THRESHOLD=0.25",
-                     f"RK_SERVER_PASSWORD={pw}"]
+                     f"RK_SERVER_PASSWORD={pw}",
+                     "RK_SERVER_BIND_ADDR=127.0.0.1:2001"]
     # env written atomically: tmp file then rename onto the real path
     renames = [a for m, a in dev.log if m == "rename"]
     assert f"{ENV}{install.TMP_SUFFIX} -> {ENV}" in renames
@@ -394,13 +409,17 @@ def test_install_writes_env_before_running_install(no_pin):
     secrets = FakeSecrets()
     install.install(dev, "v1.4.0", _downloader(), secrets=secrets)
     _, pw = install.split_credentials(secrets.store[SERIAL])
-    assert dev.files[ENV] == f"RK_SERVER_PASSWORD={pw}\n".encode()
+    assert dev.files[ENV] == (f"RK_SERVER_PASSWORD={pw}\n"
+                              "RK_SERVER_BIND_ADDR=127.0.0.1:2001\n").encode()
     log = dev.log
-    env_rename = log.index(("rename", f"{ENV}{install.TMP_SUFFIX} -> {ENV}"))
-    chmod600 = log.index(("run", f"chmod 600 -- {ENV}{install.TMP_SUFFIX}"))
-    mkdir = log.index(("run", "mkdir -p -- /home/root/.config/goMarkableStream"))
+    tmp = f"{ENV}{install.TMP_SUFFIX}"
+    env_rename = log.index(("rename", f"{tmp} -> {ENV}"))
+    # the file holding the password is 0600 before its first byte is written
+    create600 = log.index(("run", f"umask 077 && rm -f -- {tmp} && : > {tmp}"))
+    mkdir = log.index(("run", "mkdir -p -m 700 -- /home/root/.config/goMarkableStream"))
     run_install = log.index(("run", f"{install.GMS_PATH} install"))
-    assert mkdir < chmod600 < env_rename < run_install
+    assert mkdir < create600 < env_rename < run_install
+    assert not any(m == "run" and "chmod 600" in a for m, a in log)
 
 
 def test_install_keyring_failure_never_runs_install(no_pin):

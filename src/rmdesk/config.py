@@ -69,7 +69,11 @@ def dumps(cfg: Config) -> str:
 
 def save(cfg: Config, path: Path | None = None) -> None:
     path = path or CONFIG_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        os.chmod(path.parent, 0o700)  # it also holds known_hosts; older versions made it 0755
+    except OSError:
+        pass
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".config-", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:

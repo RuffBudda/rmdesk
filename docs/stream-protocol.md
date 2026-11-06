@@ -14,6 +14,7 @@ cites `file:line` at that tag. This is what `rmdesk.stream.client` implements.
 | Item | Value | Source |
 |---|---|---|
 | Bind address | `:2001` (env `RK_SERVER_BIND_ADDR`) | main.go:30 |
+| rmdesk's setting | `RK_SERVER_BIND_ADDR=127.0.0.1:2001` in the env file: loopback only. rmdesk connects through an SSH `direct-tcpip` channel on its host-key-checked connection (`SshDevice.open_tunnel`), so TLS certificate checks stay off: SSH authenticates the tablet | `rmdesk/stream/install.py` |
 | TLS | on by default (`RK_HTTPS=true`) | main.go:33, main.go:244-266, http.go:303-314 |
 | Certificate | self-signed: auto-generated per device into `/home/root/.config/goMarkableStream/certs`, falling back to the embedded `assets/cert.pem` | main.go:41-42, http.go:316-338 |
 | Stream endpoint | `GET /stream?rate=<ms>` | http.go:45-46, internal/stream/handler.go:87-107 |

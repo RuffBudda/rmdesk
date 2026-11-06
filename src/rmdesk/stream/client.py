@@ -192,11 +192,41 @@ class StreamError(Exception):
 
 
 def _tablet_context() -> ssl.SSLContext:
-    """TLS context for the tablet's self-signed certificate only; used for nothing else."""
+    """TLS context for goMarkableStream's self-signed certificate, used only over the SSH
+    tunnel (Dial): SSH has already checked the tablet's host key, so the endpoint is
+    authenticated there and TLS here only satisfies a server that speaks nothing else."""
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     return ctx
+
+
+# dial(timeout) -> a socket connected to goMarkableStream on the tablet, e.g. through
+# SshDevice.open_tunnel. The service listens on the tablet's loopback only.
+Dial = Callable[[float], socket.socket]
+
+
+class TunnelHTTPSConnection(http.client.HTTPSConnection):
+    """HTTPS over a socket from `dial` instead of a TCP connection to host:port."""
+
+    def __init__(self, dial: Dial, host: str, port: int, *, timeout: float,
+                 context: ssl.SSLContext):
+        super().__init__(host, port, timeout=timeout, context=context)
+        self._dial, self._tls = dial, context
+
+    def connect(self) -> None:
+        raw = self._dial(self.timeout)
+        try:
+            raw.settimeout(self.timeout)
+            self.sock = self._tls.wrap_socket(raw, server_hostname=self.host)
+        except BaseException:
+            raw.close()
+            raise
+
+
+def open_connection(dial: Dial, host: str, port: int, timeout: float,
+                    ctx: ssl.SSLContext) -> http.client.HTTPSConnection:
+    return TunnelHTTPSConnection(dial, host, port, timeout=timeout, context=ctx)
 
 
 class _Run:
@@ -237,7 +267,7 @@ class StreamClient:
     """
 
     def __init__(self, host: str, password: str, on_frame: Callable[[Frame], None], *,
-                 port: int = PORT, username: str = USERNAME, rate: int = DEFAULT_RATE_MS,
+                 dial: Dial, port: int = PORT, username: str = USERNAME, rate: int = DEFAULT_RATE_MS,
                  width: int = WIDTH, height: int = HEIGHT, retry_delay: float = 2.0,
                  connect_timeout: float = 5.0,
                  on_error: Callable[[Exception], None] | None = None):
@@ -247,6 +277,7 @@ class StreamClient:
         self.rate, self.width, self.height = rate, width, height
         self.retry_delay = retry_delay
         self.connect_timeout = connect_timeout
+        self._dial = dial
         self._ctx = _tablet_context()
         self._token: str | None = None
         self._run: _Run | None = None
@@ -302,8 +333,8 @@ class StreamClient:
 
     # -- internals (each takes the _Run it belongs to) --
     def _open(self, run: _Run) -> http.client.HTTPSConnection:
-        conn = http.client.HTTPSConnection(self.host, self.port, timeout=self.connect_timeout,
-                                           context=self._ctx)
+        conn = open_connection(self._dial, self.host, self.port, self.connect_timeout,
+                               self._ctx)
         with run.lock:
             run.conn = conn
         if run.stop.is_set():

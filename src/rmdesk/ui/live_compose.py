@@ -139,6 +139,7 @@ def _save_fit_debug(picture, page_data: bytes, info: dict) -> None:
         import cv2
         from datetime import datetime
         DEBUG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+        DEBUG_DIR.chmod(0o700)
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         cv2.imwrite(str(DEBUG_DIR / f"fit-{stamp}.png"), picture)
         (DEBUG_DIR / f"fit-{stamp}.rm").write_bytes(page_data)

@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, NoReturn
 
-from rmdesk.device import Device
+from rmdesk.device import Device, write_private_remote
 from rmdesk.safety import private_mkdir, start_xochitl, stop_xochitl, write_private
 
 XOCHITL_CONF = "/home/root/.config/remarkable/xochitl.conf"
@@ -163,9 +163,10 @@ def set_enabled(device: Device, enabled: bool, *, backup_root: Path,
             give_up(f"Could not save a local backup of the tablet's settings ({e}); "
                     "nothing was changed.", e)
         try:
+            # the backups hold the tablet's settings (its password among them): 0600
             if not device.exists(DEVICE_ORIG):
-                _write_atomic(device, DEVICE_ORIG, original)
-            _write_atomic(device, DEVICE_BACKUP, original)
+                write_private_remote(device, DEVICE_ORIG, original)
+            write_private_remote(device, DEVICE_BACKUP, original)
             _write_atomic(device, XOCHITL_CONF, new)
             if device.read_bytes(XOCHITL_CONF) != new:
                 raise OSError(f"{XOCHITL_CONF} did not read back correctly")

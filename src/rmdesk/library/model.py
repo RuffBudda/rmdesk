@@ -6,6 +6,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Literal
 
+from rmdesk import ids
 from rmdesk.device import Device, DeviceError
 
 log = logging.getLogger(__name__)
@@ -72,10 +73,10 @@ def _page_ids(content: dict) -> list[str]:
     cpages = content.get("cPages")
     if isinstance(cpages, dict) and isinstance(cpages.get("pages"), list):
         return [p["id"] for p in cpages["pages"]
-                if isinstance(p, dict) and "id" in p and not p.get("deleted")]
+                if isinstance(p, dict) and ids.is_safe(p.get("id")) and not p.get("deleted")]
     pages = content.get("pages")
     if isinstance(pages, list):
-        return [p for p in pages if isinstance(p, str)]
+        return [p for p in pages if ids.is_safe(p)]
     return []
 
 
@@ -108,6 +109,8 @@ def load(device: Device, root: str = XOCHITL) -> Library:
         if not entry.endswith(suffix):
             continue
         uid = entry[: -len(suffix)]
+        if not ids.is_safe(uid):
+            continue
         try:
             item = _load_item(device, root, uid)
         except (DeviceError, ValueError, KeyError, TypeError) as exc:

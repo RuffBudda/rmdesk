@@ -6,7 +6,7 @@ import threading
 
 from rmdesk.stream import events
 from rmdesk.stream.events import PenClient, PenTracker, parse_sse
-from tests.test_stream import _self_signed, _wait
+from tests.test_stream import _self_signed, _wait, tcp_dial
 
 
 def ev(code, value):
@@ -79,7 +79,8 @@ def test_pen_client_streams_positions_and_stops(tmp_path):
              for c, v in [(1, 7862), (0, 10483), (25, 3)]]
     srv = FakeEvents(tmp_path, lines)
     got = []
-    client = PenClient("127.0.0.1", "pw", lambda *a: got.append(a), port=srv.port)
+    client = PenClient("127.0.0.1", "pw", lambda *a: got.append(a), port=srv.port,
+                       dial=tcp_dial("127.0.0.1", srv.port))
     try:
         client.start()
         assert _wait(lambda: got)

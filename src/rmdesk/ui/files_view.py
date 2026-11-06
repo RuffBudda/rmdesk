@@ -50,6 +50,23 @@ def _urls_to_paths(mime) -> list[Path]:
     return [Path(u.toLocalFile()) for u in mime.urls() if u.isLocalFile()]
 
 
+
+def plain_text(text: str) -> str:
+    """`text` for a QMessageBox, shown as written. The boxes guess rich text from a "<", so
+    a tablet file name such as <img src=...> would be rendered as HTML: when there is a "<",
+    send the text escaped inside a paragraph that keeps its line breaks."""
+    if "<" not in text:
+        return text
+    import html
+    return '<p style="white-space: pre-wrap">' + html.escape(text) + "</p>"
+
+
+def safe_filename(name: str) -> str:
+    """A tablet document name as a file name in the Save dialog: no "/" (no folders), no NUL,
+    no leading dots (no hidden or "../" names)."""
+    out = name.replace("/", "-").replace("\0", "").lstrip(". ").strip()
+    return out or "untitled"
+
 class _Bridge(QObject):
     changed = Signal(object)
     pending = Signal(int)
@@ -447,12 +464,12 @@ class FilesView(QWidget):
         self.show_error(str(e))
 
     def show_error(self, msg: str) -> None:
-        QMessageBox.warning(self, "rmdesk", msg)
+        QMessageBox.warning(self, "rmdesk", plain_text(msg))
 
     def show_report(self, report: ops.UploadReport, title: str = "Upload problems") -> None:
         text = report_text(report)
         if text:
-            QMessageBox.warning(self, title, text)
+            QMessageBox.warning(self, title, plain_text(text))
 
     # -- state --
     def _on_state(self, state: State) -> None:
@@ -660,7 +677,7 @@ class FilesView(QWidget):
         menu.exec(self.list.viewport().mapToGlobal(pos))
 
     def _ask_dest(self, name: str) -> Path | None:
-        start = str(Path.home() / "Downloads" / name)
+        start = str(Path.home() / "Downloads" / safe_filename(name))
         dest, _ = QFileDialog.getSaveFileName(self, "Save as", start)
         return Path(dest) if dest else None
 
@@ -711,7 +728,7 @@ class FilesView(QWidget):
                     "You can restore them from Trash on the tablet.")
         if not self._claim_check():
             return
-        answer = QMessageBox.question(self, "Move to Trash", text)
+        answer = QMessageBox.question(self, "Move to Trash", plain_text(text))
         if answer != QMessageBox.StandardButton.Yes:
             return
 

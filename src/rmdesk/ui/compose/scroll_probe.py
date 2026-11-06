@@ -44,6 +44,7 @@ def _save_measure_debug(f0, prev, frame, error) -> None:
         from rmdesk.ui import live_compose
         d = live_compose.DEBUG_DIR
         d.mkdir(parents=True, exist_ok=True, mode=0o700)
+        d.chmod(0o700)
         stamp = datetime.now().strftime("measure-%Y%m%d-%H%M%S")
         for name, img in (("f0", f0), ("prev", prev), ("frame", frame)):
             if img is not None:

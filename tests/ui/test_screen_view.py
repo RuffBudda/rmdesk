@@ -52,9 +52,10 @@ class Creds:
 class FakeClient:
     instances: list = []
 
-    def __init__(self, host, password, on_frame, *, username, on_error=None):
+    def __init__(self, host, password, on_frame, *, username, dial=None, on_error=None):
         self.host, self.password, self.username = host, password, username
         self.on_frame, self.on_error = on_frame, on_error
+        self.dial = dial
         self.calls: list = []
         self.alive = False
         FakeClient.instances.append(self)
@@ -83,7 +84,7 @@ class FakeClient:
 class FakePen(FakeClient):
     instances: list = []
 
-    def __init__(self, host, password, on_pen, *, username, on_error=None):
+    def __init__(self, host, password, on_pen, *, username, dial=None, on_error=None):
         self.host, self.password, self.username = host, password, username
         self.on_pen = on_pen
         self.calls = []
@@ -342,6 +343,38 @@ def test_wifi_host_used(qtbot, tmp_path):
     view, _ = make_view(qtbot, tmp_path, conn=conn)
     c = show_and_wait(qtbot, view)
     assert c.host == "192.168.1.50"
+
+
+def test_stream_dials_through_the_ssh_connection(qtbot, tmp_path):
+    view, conn = make_view(qtbot, tmp_path)
+    tunnels = []
+    conn.device.open_tunnel = lambda port, timeout=10: tunnels.append((port, timeout)) or "sock"
+    c = show_and_wait(qtbot, view)
+    assert c.dial is not None
+    assert c.dial(5.0) == "sock"
+    assert tunnels == [(2001, 5.0)]  # goMarkableStream on the tablet's loopback
+
+
+def test_stream_start_moves_an_old_install_to_loopback(qtbot, tmp_path):
+    conn = make_conn()
+    conn.connect()
+    conn.info = FirmwareInfo("3.24.0.100", "SN123", None)
+    seen = []
+    view = ScreenView(conn, keep_default=False, control_default=False,
+                      client_factory=FakeClient, pen_factory=FakePen,
+                      status_fn=lambda dev: "running", local_only_fn=seen.append,
+                      secrets=Creds(), pictures_dir=tmp_path / "Pictures")
+    qtbot.addWidget(view)
+    show_and_wait(qtbot, view)
+    assert seen == [conn.device]
+
+
+def test_dial_when_offline_raises(qtbot, tmp_path):
+    from rmdesk.stream.client import StreamError
+    view, conn = make_view(qtbot, tmp_path)
+    conn.device = None
+    with pytest.raises(StreamError):
+        view._dial(1.0)
 
 
 # ---------------------------------------------------------------- present window

@@ -10,7 +10,7 @@ import secrets as _secrets
 import shlex
 from typing import Callable, Literal, Protocol
 
-from rmdesk.device import Device
+from rmdesk.device import Device, write_private_remote
 from rmdesk.firmware import read_serial
 
 GMS_PATH = "/home/root/goMarkableStream"
@@ -20,6 +20,10 @@ UNIT_PATH = "/etc/systemd/system/goMarkableStream.service"
 ENV_PATH = "/home/root/.config/goMarkableStream/env"
 TMP_SUFFIX = ".rmdesk-tmp"
 KEYRING_SERVICE = "rmdesk-stream"
+# goMarkableStream listens on the tablet's loopback only; rmdesk reaches it through its SSH
+# connection (SshDevice.open_tunnel), so nothing on the network can see the service
+BIND_ADDR = f"127.0.0.1:{PORT}"
+BIND_LINE = f"RK_SERVER_BIND_ADDR={BIND_ADDR}"
 
 REPO = "owulveryck/goMarkableStream"
 LATEST = "v1.4.0"
@@ -190,11 +194,46 @@ def _env_username(env: str) -> str:
     return name
 
 
+_BIND_RE = r"\s*(export\s+)?RK_SERVER_BIND_ADDR\s*="
+
+
+def _env_with_bind(current: str) -> str:
+    """The env file with RK_SERVER_BIND_ADDR set to the tablet's loopback (any other value
+    removed)."""
+    kept = [ln for ln in current.splitlines() if not re.match(_BIND_RE, ln)]
+    kept.append(BIND_LINE)
+    return "\n".join(kept) + "\n"
+
+
 def _env_with_password(current: str, password: str) -> str:
     kept = [ln for ln in current.splitlines()
             if not re.match(r"\s*(export\s+)?RK_SERVER_PASSWORD\s*=", ln)]
     kept.append(f"RK_SERVER_PASSWORD={password}")
-    return "\n".join(kept) + "\n"
+    return _env_with_bind("\n".join(kept))
+
+
+def is_local_only(env: str) -> bool:
+    """True if the env file binds the service to the tablet's loopback (last line wins)."""
+    value = None
+    for ln in env.splitlines():
+        if re.match(_BIND_RE, ln):
+            value = ln.split("=", 1)[1].strip().strip("'\"")
+    return value == BIND_ADDR
+
+
+def ensure_local_only(device: Device) -> bool:
+    """For a stream installed by an older rmdesk (listening on every interface): bind it to
+    the tablet's loopback and restart it. Returns True if it changed anything. Does nothing
+    when goMarkableStream isn't installed or is already local-only."""
+    if not device.exists(ENV_PATH):
+        return False
+    current = device.read_bytes(ENV_PATH).decode("utf-8", "replace")
+    if is_local_only(current):
+        return False
+    write_private_remote(device, ENV_PATH, _env_with_bind(current).encode("utf-8"))
+    if device.exists(GMS_PATH):
+        _run(device, f"systemctl restart {UNIT}", timeout=60)
+    return True
 
 
 def install(device: Device, tag: str, downloader: Callable[[str], bytes], *,
@@ -219,11 +258,8 @@ def install(device: Device, tag: str, downloader: Callable[[str], bytes], *,
     username = _env_username(current)
     password = _secrets.token_urlsafe(12)  # 16 characters of [A-Za-z0-9_-]
     secrets.set(serial, join_credentials(username, password))
-    env_tmp = ENV_PATH + TMP_SUFFIX
-    _run(device, f"mkdir -p -- {shlex.quote(ENV_PATH.rsplit('/', 1)[0])}")
-    device.write_bytes(env_tmp, _env_with_password(current, password).encode("utf-8"))
-    _run(device, f"chmod 600 -- {shlex.quote(env_tmp)}")
-    device.rename(env_tmp, ENV_PATH)
+    _run(device, f"mkdir -p -m 700 -- {shlex.quote(ENV_PATH.rsplit('/', 1)[0])}")
+    write_private_remote(device, ENV_PATH, _env_with_password(current, password).encode("utf-8"))
 
     # 2. The binary: upload beside the target, then rename (works while the old one runs).
     tmp = GMS_PATH + TMP_SUFFIX

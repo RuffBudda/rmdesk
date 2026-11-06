@@ -2,6 +2,7 @@
 header and come back with "← Screen") and the status bar."""
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QMainWindow,
                                QStackedWidget, QVBoxLayout, QWidget)
 
-from rmdesk import config
+from rmdesk import config, safety
 from rmdesk.ui import theme
 from rmdesk.config import Config
 from rmdesk.connection import BUSY_MSG, Connection, State
@@ -244,22 +245,37 @@ def load_theme() -> str:
 LOG_PATH = Path.home() / ".local" / "share" / "rmdesk" / "rmdesk.log"
 
 
+def _private_log_handler(path: Path, **kw):
+    """A RotatingFileHandler whose files are 0600 from creation, rollovers included (the
+    stock one reopens rmdesk.log with the umask's 0644)."""
+    import logging.handlers
+
+    class PrivateRotatingFileHandler(logging.handlers.RotatingFileHandler):
+        def _open(self):
+            fd = os.open(self.baseFilename, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+            os.fchmod(fd, 0o600)
+            return open(fd, self.mode, encoding=self.encoding, errors=self.errors)
+
+    return PrivateRotatingFileHandler(path, **kw)
+
+
 def setup_logging(path: Path = LOG_PATH) -> None:
     """rmdesk's own log file (the app menu sends stderr nowhere): INFO and up, 1 MB x 3,
-    readable only by the user. Never raises."""
+    readable only by the user: the folder is 0700 and every log file 0600. Never raises."""
     import logging
-    import logging.handlers
     try:
-        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        h = logging.handlers.RotatingFileHandler(path, maxBytes=1_000_000, backupCount=3,
-                                                 encoding="utf-8")
+        safety.private_mkdir(path.parent)
+        os.chmod(path.parent, 0o700)  # setup-venv.sh's `python -m venv` made it 0755
+        for old in path.parent.glob(path.name + "*"):  # logs from older versions were 0644
+            if old.is_file():
+                old.chmod(0o600)
+        h = _private_log_handler(path, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
         h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
         root = logging.getLogger()
         root.addHandler(h)
         root.setLevel(logging.INFO)
         logging.getLogger("rmscene").setLevel(logging.ERROR)  # newer-format notices
         logging.getLogger("paramiko").setLevel(logging.WARNING)
-        path.chmod(0o600)
     except OSError:
         pass
 

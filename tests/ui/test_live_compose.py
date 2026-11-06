@@ -81,7 +81,7 @@ class Creds(NoSecrets):
 class FakeClient:
     instances: list = []
 
-    def __init__(self, host, password, on_frame, *, username, on_error=None):
+    def __init__(self, host, password, on_frame, *, username, dial=None, on_error=None):
         self.on_frame = on_frame
         self.alive = False
         self.calls: list = []

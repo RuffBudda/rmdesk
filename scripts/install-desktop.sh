@@ -8,18 +8,24 @@ VENV="$HOME/.local/share/rmdesk/venv"
 
 mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications" \
          "$HOME/.local/share/icons/hicolor/scalable/apps"
-cat > "$HOME/.local/bin/rmdesk" <<LAUNCH
+launcher="$HOME/.local/bin/rmdesk"
+if [[ -e $launcher ]] && ! grep -q "rmdesk/venv" "$launcher"; then
+  echo "$launcher exists and isn't rmdesk's launcher; leaving it alone." >&2
+  echo "Move it away and run this again." >&2
+  exit 1
+fi
+cat > "$launcher" <<LAUNCH
 #!/usr/bin/env bash
 export PYTHONPYCACHEPREFIX="\$HOME/.cache/rmdesk/pycache"  # keep the source folder clean
 exec "$VENV/bin/python" -m rmdesk "\$@"
 LAUNCH
-chmod +x "$HOME/.local/bin/rmdesk"
+chmod +x "$launcher"
 install -m 644 "$here/data/rmdesk.svg" "$HOME/.local/share/icons/hicolor/scalable/apps/rmdesk.svg"
 cat > "$HOME/.local/share/applications/rmdesk.desktop" <<DESK
 [Desktop Entry]
 Name=rmdesk
 Comment=reMarkable 2: files, live screen, control, and ink on notebook pages
-Exec=$HOME/.local/bin/rmdesk
+Exec="$launcher"
 Icon=rmdesk
 Terminal=false
 Type=Application

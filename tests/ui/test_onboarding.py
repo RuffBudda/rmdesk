@@ -13,7 +13,16 @@ from PySide6.QtWidgets import QApplication, QPushButton
 from rmdesk import firmware
 from rmdesk.config import Config
 from rmdesk.connection import USB_HOST, Connection, State
-from rmdesk.device import DeviceError, HostKeyChanged
+from rmdesk.device import DeviceError, HostKeyChanged, UnknownHostKey
+
+_KEY = []
+
+
+def _wifi_key():
+    import paramiko
+    if not _KEY:
+        _KEY.append(paramiko.RSAKey.generate(1024))
+    return _KEY[0]
 from rmdesk.firmware import FirmwareInfo, XOCHITL_DIR
 from rmdesk.ui import onboarding as onb
 from rmdesk.ui.app import MainWindow
@@ -69,6 +78,10 @@ class Tablet:
             raise DeviceError(f"[Errno None] Unable to connect to port 22 on {host}")
         if mode == "hostkey":
             raise HostKeyChanged(f"host key for {host} has changed")
+        if mode == "unknown-key":
+            if host == USB_HOST:
+                raise DeviceError("[Errno 113] No route to host")
+            raise UnknownHostKey(host, _wifi_key())
         if mode == "auth" and password != self.password:
             raise DeviceError("Authentication failed.")
         return FakeDevice({f"{XOCHITL_DIR}/.keep": b""})
@@ -173,6 +186,13 @@ def test_host_key_changed(qtbot):
     win.start()
     qtbot.waitUntil(lambda: ob.headline.text() == onb.KEY_CHANGED, timeout=3000)
     assert "security key changed" in ob.advice.text() and "Open settings" in ob.advice.text()
+
+
+def test_unknown_wifi_key(qtbot):
+    win, conn, tablet, ob = make(qtbot, mode="unknown-key")
+    win.start()
+    qtbot.waitUntil(lambda: ob.headline.text() == onb.UNKNOWN_KEY, timeout=3000)
+    assert "USB cable" in ob.advice.text() and "trust" in ob.advice.text()
 
 
 def test_password_path(qtbot):

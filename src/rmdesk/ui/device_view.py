@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (QCheckBox, QFrame, QGridLayout, QHBoxLayout, QLab
 from rmdesk import config, device, safety, webui
 from rmdesk import connection
 from rmdesk.connection import BUSY_MSG, Connection, State, install_ssh_key
-from rmdesk.device import DeviceError, HostKeyChanged
+from rmdesk.device import DeviceError, HostKeyChanged, UnknownHostKey
 from rmdesk.library import ops
 from rmdesk.stream import install as gms
 from rmdesk.ui.theme import TOKENS
@@ -21,6 +21,11 @@ from rmdesk.ui.workers import run_in_thread
 
 HOST_KEY_MSG = ("The tablet's security key changed. This happens after a factory reset or "
                 "firmware reinstall — or if another device is pretending to be your tablet.")
+UNKNOWN_KEY_MSG = ("The tablet at {host} showed a security key rmdesk hasn't seen before, so "
+                   "rmdesk didn't send it your password. Connect once with the USB cable and "
+                   "rmdesk learns the key. Or compare this fingerprint with the one the "
+                   "tablet shows over USB (in a terminal: ssh-keyscan 10.11.99.1 | "
+                   "ssh-keygen -lf -) and trust it:\n{fingerprint}")
 PASSWORD_HINT = ("The password is on the tablet under "
                  "Settings → Help → Copyrights and licenses.")
 PASSPHRASE_HINT = "If your SSH key has a passphrase, run ssh-add first."
@@ -192,6 +197,8 @@ class DeviceView(QWidget):
         self.message.setWordWrap(True)
         self.forget_btn = QPushButton("Forget saved tablet key")
         self.forget_btn.hide()
+        self.trust_btn = QPushButton("Trust this key")
+        self.trust_btn.hide()
         self.firmware_label = _mono("—")
         self.serial_label = _mono("—")
         self.ip_label = _mono("—")
@@ -236,6 +243,7 @@ class DeviceView(QWidget):
         cl.addLayout(buttons)
         cl.addWidget(self.message)
         cl.addWidget(self.forget_btn, 0, Qt.AlignmentFlag.AlignLeft)
+        cl.addWidget(self.trust_btn, 0, Qt.AlignmentFlag.AlignLeft)
 
         # -- Tablet info card --
         info_card, il = _card("reMarkable 2", "About this tablet.")
@@ -336,7 +344,8 @@ class DeviceView(QWidget):
         QWidget.setTabOrder(self.wifi_ip, self.connect_btn)
         QWidget.setTabOrder(self.connect_btn, self.key_btn)
         QWidget.setTabOrder(self.key_btn, self.forget_btn)
-        QWidget.setTabOrder(self.forget_btn, self.offline.button)
+        QWidget.setTabOrder(self.forget_btn, self.trust_btn)
+        QWidget.setTabOrder(self.trust_btn, self.offline.button)
         QWidget.setTabOrder(self.offline.button, self.stream_btn)
         QWidget.setTabOrder(self.stream_btn, self.stream_uninstall_btn)
         QWidget.setTabOrder(self.stream_uninstall_btn, self.fast_btn)
@@ -348,6 +357,7 @@ class DeviceView(QWidget):
         conn.on_job.append(self._job_changed.emit)
         self.key_btn.clicked.connect(self.install_key)
         self.forget_btn.clicked.connect(self.forget_key)
+        self.trust_btn.clicked.connect(self.trust_key)
         self.wifi_ip.editingFinished.connect(self._save_ip)
         self.stream_btn.clicked.connect(self.install_stream)
         self.stream_uninstall_btn.clicked.connect(self.uninstall_stream)
@@ -535,8 +545,9 @@ class DeviceView(QWidget):
         ok = QMessageBox.question(
             self, f"{verb} screen streaming",
             f"{verb} goMarkableStream {tag} for firmware {info.version}?\n\n"
-            "It runs on the tablet as a service on port 2001, protected by a new "
-            "random password kept in your keyring.")
+            "It runs on the tablet as a service that only the tablet itself can reach "
+            "(port 2001 on its loopback); rmdesk gets to it through its SSH connection. "
+            "It is protected by a new random password kept in your keyring.")
         if ok != QMessageBox.StandardButton.Yes:
             return
         if not self.conn.try_begin_job("installing screen streaming"):
@@ -731,6 +742,32 @@ class DeviceView(QWidget):
         self.refresh()
         self.connect_now()
 
+    def _unknown_key(self) -> UnknownHostKey | None:
+        for e in self.conn.host_errors.values():
+            if isinstance(e, UnknownHostKey):
+                return e
+        return None
+
+    def trust_key(self) -> None:
+        err = self._unknown_key()
+        if err is None:
+            return
+        ok = QMessageBox.question(
+            self, "Trust tablet key",
+            f"Trust the security key shown by {err.host}?\n\n{err.fingerprint}\n\n"
+            "Only do this if it matches your tablet's key.")
+        if ok != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            device.trust_host_key(err, self._known_hosts)
+        except OSError as e:
+            self.message.setText(f"Could not edit known_hosts: {e}")
+            return
+        self.conn.last_error = None
+        self.conn.host_errors.pop(err.host, None)
+        self.refresh()
+        self.connect_now()
+
     # -- display --
     def set_battery(self, b) -> None:
         """The Battery row: "56% · Discharging" and a small bar; hidden when unknown."""
@@ -757,9 +794,14 @@ class DeviceView(QWidget):
         self._set_offline_look(self.conn.device is None)
         err = self.conn.last_error
         changed = isinstance(err, HostKeyChanged)
+        unknown = None if changed else self._unknown_key()
         self.forget_btn.setVisible(changed)
+        self.trust_btn.setVisible(unknown is not None)
         if changed:
             self.message.setText(HOST_KEY_MSG)
+        elif unknown is not None and self.conn.state == State.OFFLINE:
+            self.message.setText(UNKNOWN_KEY_MSG.format(host=unknown.host,
+                                                        fingerprint=unknown.fingerprint))
         elif err is not None and self.conn.state == State.OFFLINE:
             text = f"Could not connect: {err}"
             if not self.password.text():  # key-only login failed

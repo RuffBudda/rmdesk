@@ -9,6 +9,7 @@ import json
 from dataclasses import dataclass
 from typing import Literal
 
+from rmdesk import ids as _ids
 from rmdesk.device import Device, DeviceError
 from rmdesk.library.model import TRASH, XOCHITL
 
@@ -137,6 +138,8 @@ def find_opened_page(device: Device, root: str = XOCHITL) -> OpenedPage:
     if len(cands) > 1 and cands[0][:2] == cands[1][:2]:
         raise NotEditable(TIE_MSG)
     uid = cands[0][2]
+    if not _ids.is_safe(uid):
+        raise NotEditable(BAD_FILES_MSG)
     meta = metas[uid]
     try:
         content = json.loads(device.read_bytes(f"{root}/{uid}.content"))
@@ -153,6 +156,8 @@ def find_opened_page(device: Device, root: str = XOCHITL) -> OpenedPage:
         raise NotEditable(BAD_FILES_MSG)
     ids = [p["id"] for p in pages
            if isinstance(p, dict) and isinstance(p.get("id"), str) and not p.get("deleted")]
+    if not all(_ids.is_safe(i) for i in ids):
+        raise NotEditable(BAD_FILES_MSG)
     index = _num(meta.get("lastOpenedPage"))
     if index is None:
         if len(ids) != 1:

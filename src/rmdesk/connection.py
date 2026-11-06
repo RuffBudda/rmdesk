@@ -11,9 +11,9 @@ from typing import Callable, Literal, Protocol
 
 from rmdesk import firmware, safety
 from rmdesk.config import Config
-from rmdesk.device import Device, DeviceError, HostKeyChanged, SshDevice
+from rmdesk.device import (USB_HOST, Device, DeviceError, HostKeyChanged, SshDevice,
+                           UnknownHostKey, write_private_remote)
 
-USB_HOST = "10.11.99.1"
 KEYRING_SERVICE = "rmdesk"
 AUTHORIZED_KEYS = "/home/root/.ssh/authorized_keys"
 BUSY_MSG = "The tablet is busy with: {}. Try again when it's done."
@@ -335,7 +335,7 @@ class Connection:
         """
         if self.device is not None:
             return self.device
-        if isinstance(self.last_error, HostKeyChanged):
+        if isinstance(self.last_error, (HostKeyChanged, UnknownHostKey)):
             raise self.last_error
         if self._failures:
             self._sleep(min(2 ** (self._failures - 1), 30))
@@ -356,5 +356,4 @@ def install_ssh_key(device: Device, pubkey_path: Path) -> None:
     device.run("mkdir -p -m 700 /home/root/.ssh")
     if current and not current.endswith("\n"):
         current += "\n"
-    device.write_bytes(AUTHORIZED_KEYS, (current + key + "\n").encode("utf-8"))
-    device.run(f"chmod 600 {AUTHORIZED_KEYS}")
+    write_private_remote(device, AUTHORIZED_KEYS, (current + key + "\n").encode("utf-8"))
