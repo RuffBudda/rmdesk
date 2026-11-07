@@ -215,6 +215,7 @@ def recording(monkeypatch, tmp_path):
     _RecordingClient.instances = []
     monkeypatch.setattr(device_mod.paramiko, "SSHClient", _RecordingClient)
     monkeypatch.setattr(device_mod, "KNOWN_HOSTS", tmp_path / "known_hosts")
+    monkeypatch.setattr(device_mod, "_open_usb_socket", lambda host: (None, True))
     return _RecordingClient.instances
 
 

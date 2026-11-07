@@ -195,7 +195,7 @@ Uninstalling doesn't change your tablet. If you installed screen streaming or tu
 ## Prepare the tablet
 
 1. **Find the SSH password.** On the tablet: **Settings → Help → Copyrights and licenses**. The password, and the tablet's IP addresses, are listed in the General information section. rmdesk asks for it once and keeps it in your system keyring (for example GNOME Keyring or KWallet), keyed by the tablet's serial number.
-2. **USB:** plug the tablet in. It is reachable at `10.11.99.1`.
+2. **USB:** plug the tablet in. It is reachable at `10.11.99.1`. The first time, rmdesk learns the tablet's security key over the cable, but only after checking that `10.11.99.1` is really reached through the tablet's USB network link (an RNDIS/CDC Ethernet interface with an address in `10.11.99.0/24`). If it is reached any other way, or over Wi-Fi, rmdesk sends no password until the key matches the one it learned over USB, or you check its fingerprint and press **Trust this key** in the Device page.
 3. **Wi-Fi (optional):** recent firmware only allows SSH over USB until you turn Wi-Fi SSH on. With the tablet plugged in by USB, run this once:
 
    ```bash

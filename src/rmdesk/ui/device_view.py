@@ -21,11 +21,12 @@ from rmdesk.ui.workers import run_in_thread
 
 HOST_KEY_MSG = ("The tablet's security key changed. This happens after a factory reset or "
                 "firmware reinstall — or if another device is pretending to be your tablet.")
-UNKNOWN_KEY_MSG = ("The tablet at {host} showed a security key rmdesk hasn't seen before, so "
-                   "rmdesk didn't send it your password. Connect once with the USB cable and "
-                   "rmdesk learns the key. Or compare this fingerprint with the one the "
-                   "tablet shows over USB (in a terminal: ssh-keyscan 10.11.99.1 | "
-                   "ssh-keygen -lf -) and trust it:\n{fingerprint}")
+UNKNOWN_KEY_MSG = ("The tablet at {host} showed a security key rmdesk hasn't seen before, and "
+                   "rmdesk couldn't confirm it was reached through the USB cable, so it "
+                   "didn't send it your password. Connect once with the USB cable plugged in "
+                   "and rmdesk learns the key. Or compare this fingerprint with the one the "
+                   "tablet shows over USB (in a terminal, with the cable plugged in: "
+                   "ssh-keyscan 10.11.99.1 | ssh-keygen -lf -) and trust it:\n{fingerprint}")
 PASSWORD_HINT = ("The password is on the tablet under "
                  "Settings → Help → Copyrights and licenses.")
 PASSPHRASE_HINT = "If your SSH key has a passphrase, run ssh-add first."
