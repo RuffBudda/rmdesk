@@ -1,4 +1,4 @@
-"""Regression tests for the Omarchy marketplace security review (0.1.1)."""
+"""Regression tests for the Omarchy marketplace security review (0.1.1, 0.1.2)."""
 from __future__ import annotations
 
 import logging
@@ -165,10 +165,135 @@ def two_keys():
 def test_usb_address_is_trusted_on_first_use(tmp_path, two_keys):
     kh = tmp_path / "cfg" / "known_hosts"
     keys = paramiko.HostKeys()
-    device._TrustOnFirstUse(kh).missing_host_key(FakeClient(keys), USB_HOST, two_keys[0])
+    device._TrustOnFirstUse(kh, usb_verified=True).missing_host_key(
+        FakeClient(keys), USB_HOST, two_keys[0])
     assert keys.lookup(USB_HOST)
     assert stat.S_IMODE(kh.stat().st_mode) == 0o600
     assert stat.S_IMODE(kh.parent.stat().st_mode) == 0o700
+
+
+# -- H1: the USB address is trusted on first use only over the real USB link --
+
+@pytest.mark.parametrize("policy", [
+    lambda kh: device._TrustOnFirstUse(kh),
+    lambda kh: device._TrustOnFirstUse(kh, usb_verified=False),
+])
+def test_usb_address_not_over_the_cable_is_refused(tmp_path, two_keys, policy):
+    """10.11.99.1 reached some other way (e.g. a Wi-Fi network that routes it): an unknown
+    key is not trusted and nothing (no password) is sent."""
+    kh = tmp_path / "known_hosts"
+    keys = paramiko.HostKeys()
+    with pytest.raises(UnknownHostKey) as ei:
+        policy(kh).missing_host_key(FakeClient(keys), USB_HOST, two_keys[0])
+    assert ei.value.host == USB_HOST
+    assert keys.lookup(USB_HOST) is None
+    assert not kh.exists()
+
+
+def _fake_sys_net(tmp_path, name, devpath, driver):
+    """/sys/class/net/<name>/device -> devpath, with devpath/driver -> .../<driver>."""
+    root = tmp_path / "sys"
+    dev = root / "devices" / devpath
+    dev.mkdir(parents=True)
+    drv = root / "bus" / "drivers" / driver
+    drv.mkdir(parents=True)
+    (dev / "driver").symlink_to(drv)
+    net = root / "class" / "net" / name
+    net.mkdir(parents=True)
+    (net / "device").symlink_to(dev)
+    return root / "class" / "net"
+
+
+def test_usb_link_accepts_the_tablet_gadget(tmp_path):
+    sys_net = _fake_sys_net(tmp_path, "usb0", "pci0000:00/0000:00:14.0/usb1/1-2/1-2:1.0",
+                            "rndis_host")
+    assert device.usb_link("10.11.99.2", {"usb0": "10.11.99.2"}, sys_net) == "usb0"
+
+
+@pytest.mark.parametrize("local_ip,ifaces,devpath,driver", [
+    # the PC's end of the connection is on Wi-Fi (the route to 10.11.99.1 goes elsewhere)
+    ("192.168.1.20", {"wlan0": "192.168.1.20"}, "pci0000:00/0000:00:14.3", "iwlwifi"),
+    # an attacker's network hands out 10.11.99.x over Wi-Fi
+    ("10.11.99.5", {"wlan0": "10.11.99.5"}, "pci0000:00/0000:00:14.3", "iwlwifi"),
+    # a USB Wi-Fi dongle on a 10.11.99.x network is not the tablet's cable
+    ("10.11.99.5", {"wlan1": "10.11.99.5"}, "pci0000:00/usb1/1-3/1-3:1.0", "rtl8xxxu"),
+    # the address belongs to no interface (e.g. a VPN or tunnel)
+    ("10.11.99.5", {"usb0": "10.11.99.2"}, "pci0000:00/usb1/1-2/1-2:1.0", "rndis_host"),
+    ("not-an-ip", {"usb0": "10.11.99.2"}, "pci0000:00/usb1/1-2/1-2:1.0", "rndis_host"),
+])
+def test_usb_link_refuses_other_paths(tmp_path, local_ip, ifaces, devpath, driver):
+    name = next(iter(ifaces))
+    sys_net = _fake_sys_net(tmp_path, name, devpath, driver)
+    assert device.usb_link(local_ip, ifaces, sys_net) is None
+
+
+def test_usb_link_refuses_a_virtual_interface(tmp_path):
+    sys_net = tmp_path / "net"
+    (sys_net / "br0").mkdir(parents=True)  # no device link
+    assert device.usb_link("10.11.99.2", {"br0": "10.11.99.2"}, sys_net) is None
+
+
+class _PolicyClient:
+    """paramiko.SSHClient stand-in: runs the missing-host-key policy like a first connect."""
+    seen = []
+
+    def __init__(self):
+        self._keys = paramiko.HostKeys()
+        self._policy = None
+        _PolicyClient.seen.append(self)
+
+    def load_host_keys(self, path):
+        pass
+
+    def set_missing_host_key_policy(self, policy):
+        self._policy = policy
+
+    def get_host_keys(self):
+        return self._keys
+
+    def connect(self, host, **kw):
+        self.kw = kw
+        self._policy.missing_host_key(self, host, _PolicyClient.key)
+        self.authenticated_with = kw["password"]
+
+    def open_sftp(self):
+        class _Chan:
+            def settimeout(self, t):
+                pass
+
+        class _Sftp:
+            def get_channel(self):
+                return _Chan()
+        return _Sftp()
+
+    def close(self):
+        pass
+
+
+@pytest.mark.parametrize("verified", [False, True])
+def test_ssh_device_sends_no_password_unless_the_usb_link_is_verified(
+        monkeypatch, tmp_path, two_keys, verified):
+    class Sock:
+        closed = False
+
+        def close(self):
+            Sock.closed = True
+
+    sock = Sock()
+    _PolicyClient.seen, _PolicyClient.key = [], two_keys[0]
+    monkeypatch.setattr(device.paramiko, "SSHClient", _PolicyClient)
+    monkeypatch.setattr(device, "KNOWN_HOSTS", tmp_path / "known_hosts")
+    monkeypatch.setattr(device, "_open_usb_socket", lambda host: (sock, verified))
+    if verified:
+        dev = device.SshDevice(USB_HOST, "root-pw")
+        assert dev.usb_verified is True
+        assert _PolicyClient.seen[0].authenticated_with == "root-pw"
+        assert _PolicyClient.seen[0].kw["sock"] is sock  # the checked socket is the one used
+    else:
+        with pytest.raises(UnknownHostKey):
+            device.SshDevice(USB_HOST, "root-pw")
+        assert not hasattr(_PolicyClient.seen[0], "authenticated_with")
+        assert Sock.closed
 
 
 def test_wifi_with_the_usb_key_is_trusted(tmp_path, two_keys):

@@ -13,9 +13,16 @@ import paramiko
 
 KNOWN_HOSTS = Path.home() / ".config" / "rmdesk" / "known_hosts"
 SFTP_TIMEOUT = 30  # seconds, per SFTP channel operation
-# the tablet's address on its USB cable: a direct link, so its key is learned on first use;
-# any other address (Wi-Fi) must show this same key, or the user must accept it first
+# the tablet's address on its USB cable. Its key is learned on first use only when the
+# connection really goes through the tablet's USB network link (see usb_link); any other
+# address (Wi-Fi), or this address reached some other way, must show the key already pinned
+# for it, or the user must check and accept the key first
 USB_HOST = "10.11.99.1"
+USB_SUBNET = "10.11.99.0/24"  # the tablet hands the PC an address in this range over USB
+SYS_NET = Path("/sys/class/net")
+# kernel drivers of USB network gadgets (the tablet shows up as RNDIS / CDC Ethernet); a USB
+# Wi-Fi or USB Ethernet adapter uses another driver and does not count as the cable
+USB_GADGET_DRIVERS = frozenset({"rndis_host", "cdc_ether", "cdc_ncm", "cdc_eem", "cdc_subset"})
 
 
 def _private_dir(path: Path) -> None:
@@ -80,9 +87,10 @@ class HostKeyChanged(DeviceError):
 
 
 class UnknownHostKey(DeviceError):
-    """A Wi-Fi address showed a key rmdesk has never seen for this tablet. Nothing was sent
-    to it (no password): the user checks the fingerprint and accepts it with trust_host_key,
-    or connects once over USB so the key is known."""
+    """An address showed a key rmdesk has never seen for this tablet and rmdesk could not
+    vouch for it itself (a Wi-Fi address, or the USB address not reached through a USB
+    network link). Nothing was sent to it (no password): the user checks the fingerprint
+    and accepts it with trust_host_key, or connects once over the USB cable."""
 
     def __init__(self, host: str, key: paramiko.PKey):
         self.host, self.key = host, key
@@ -118,18 +126,83 @@ class Device(Protocol):
     def close(self) -> None: ...
 
 
-class _TrustOnFirstUse(paramiko.MissingHostKeyPolicy):
-    """The USB address is trusted on first use (it is the cable). Any other address is
-    trusted only when it shows the key already pinned for the USB address; otherwise
-    UnknownHostKey is raised before anything (a password) is sent. Changed keys are
-    rejected by paramiko (HostKeyChanged)."""
+def _iface_ipv4(name: str) -> str | None:
+    """The IPv4 address of a network interface (Linux SIOCGIFADDR), or None."""
+    import fcntl
+    import struct
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        req = struct.pack("256s", name.encode()[:15])
+        return socket.inet_ntoa(fcntl.ioctl(s.fileno(), 0x8915, req)[20:24])
+    except OSError:
+        return None
+    finally:
+        s.close()
 
-    def __init__(self, known_hosts: Path):
+
+def _interfaces() -> dict[str, str | None]:
+    """{interface name: its IPv4 address or None}."""
+    try:
+        names = [n for _i, n in socket.if_nameindex()]
+    except OSError:
+        return {}
+    return {n: _iface_ipv4(n) for n in names}
+
+
+def _is_usb_gadget(name: str, sys_net: Path = SYS_NET) -> bool:
+    """True if the interface is a USB network gadget link (the tablet's cable)."""
+    dev = sys_net / name / "device"
+    try:
+        real = os.path.realpath(dev, strict=True)
+        driver = os.path.basename(os.path.realpath(dev / "driver", strict=True))
+    except OSError:
+        return False  # virtual interfaces (bridges, VPNs, veth) have no device
+    return "/usb" in real and driver in USB_GADGET_DRIVERS
+
+
+def usb_link(local_ip: str, interfaces: dict[str, str | None] | None = None,
+             sys_net: Path = SYS_NET) -> str | None:
+    """The USB gadget interface that owns local_ip (this end of a connection to USB_HOST),
+    or None when the connection does not run over the tablet's USB network link."""
+    import ipaddress
+    try:
+        if ipaddress.ip_address(local_ip) not in ipaddress.ip_network(USB_SUBNET):
+            return None
+    except ValueError:
+        return None
+    for name, ip in (interfaces if interfaces is not None else _interfaces()).items():
+        if ip == local_ip and _is_usb_gadget(name, sys_net):
+            return name
+    return None
+
+
+def _open_usb_socket(host: str, port: int = 22, timeout: float = 10
+                     ) -> tuple[socket.socket, bool]:
+    """Connect to the USB address and say whether the socket runs over the USB cable. The
+    same socket is handed to paramiko, so the check and the SSH session share one path."""
+    sock = socket.create_connection((host, port), timeout=timeout)
+    try:
+        local_ip = sock.getsockname()[0]
+        return sock, usb_link(local_ip) is not None
+    except Exception:
+        sock.close()
+        raise
+
+
+class _TrustOnFirstUse(paramiko.MissingHostKeyPolicy):
+    """The USB address is trusted on first use only when the connection was seen to run over
+    the tablet's USB network link (usb_verified: it is the cable). Any other address, and
+    the USB address reached any other way, is trusted only when it shows the key already
+    pinned for the USB address; otherwise UnknownHostKey is raised before anything (a
+    password) is sent. Changed keys are rejected by paramiko (HostKeyChanged)."""
+
+    def __init__(self, known_hosts: Path, usb_verified: bool = False):
         self._path = known_hosts
+        self._usb_verified = usb_verified
 
     def missing_host_key(self, client, hostname, key):
         keys = client.get_host_keys()
-        if hostname != USB_HOST:
+        if not (hostname == USB_HOST and self._usb_verified):
             pinned = keys.lookup(USB_HOST) or {}
             same = pinned.get(key.get_name())
             if same is None or same.asbytes() != key.asbytes():
@@ -344,18 +417,27 @@ class SshDevice:
             except OSError:
                 pass
             self._client.load_host_keys(str(KNOWN_HOSTS))
-        self._client.set_missing_host_key_policy(_TrustOnFirstUse(KNOWN_HOSTS))
+        sock, usb_verified = None, False
+        if host == USB_HOST:
+            try:
+                sock, usb_verified = _open_usb_socket(host)
+            except OSError as e:
+                raise DeviceError(str(e)) from e
+        self.usb_verified = usb_verified
+        self._client.set_missing_host_key_policy(_TrustOnFirstUse(KNOWN_HOSTS, usb_verified))
         try:
             self._client.connect(
                 host, username="root", password=password, key_filename=key_filename,
-                timeout=10, look_for_keys=False, allow_agent=True,
+                timeout=10, look_for_keys=False, allow_agent=True, sock=sock,
             )
         except UnknownHostKey:
-            self._client.close()
+            self._close_failed(sock)
             raise
         except paramiko.BadHostKeyException as e:
+            self._close_failed(sock)
             raise HostKeyChanged(f"host key for {host} has changed") from e
         except (paramiko.SSHException, OSError) as e:
+            self._close_failed(sock)
             raise DeviceError(str(e)) from e
         try:
             self._sftp = self._client.open_sftp()
@@ -365,6 +447,14 @@ class SshDevice:
         except (paramiko.SSHException, OSError) as e:
             self._client.close()
             raise DeviceError(str(e)) from e
+
+    def _close_failed(self, sock) -> None:
+        self._client.close()
+        if sock is not None:
+            try:
+                sock.close()
+            except OSError:
+                pass
 
     def run(self, cmd: str, timeout: float = 30) -> CommandResult:
         with self._lock:

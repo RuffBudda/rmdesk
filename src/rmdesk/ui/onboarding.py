@@ -43,9 +43,9 @@ WIFI_SSH_OFF_HELP = ("The tablet answers on Wi-Fi but doesn't let rmdesk in ther
                      "USB, run rm-ssh-over-wlan on).")
 KEY_CHANGED = "The tablet's security key changed"
 UNKNOWN_KEY = "rmdesk doesn't know this tablet's key yet"
-UNKNOWN_KEY_HELP = ("Over Wi-Fi rmdesk only sends your password to a tablet whose key it "
-                    "knows. Connect once with the USB cable, or open settings to check and "
-                    "trust the key.")
+UNKNOWN_KEY_HELP = ("rmdesk only sends your password to a tablet whose key it knows, or to "
+                    "one it reaches through its USB cable. Connect once with the USB cable, "
+                    "or open settings to check and trust the key.")
 NOT_FOUND = "Couldn't find your reMarkable"
 NOT_FOUND_HELP = "Plug it in with its USB cable and wake it up."
 NOT_FOUND_WIFI = (" For Wi-Fi, check that it is awake on the same network as this computer "
