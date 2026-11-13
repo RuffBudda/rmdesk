@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.ruffbudda.rmdesk",
   "name": "rmdesk",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "author": "RuffBudda",
   "license": "MIT",
   "description": "A bar button for rmdesk, a desktop app for the reMarkable 2: see and control the tablet's screen live, place pictures, ink text and shapes on its pages, and manage its files over USB or Wi-Fi.",

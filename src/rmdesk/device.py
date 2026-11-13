@@ -163,7 +163,8 @@ def _is_usb_gadget(name: str, sys_net: Path = SYS_NET) -> bool:
 def usb_link(local_ip: str, interfaces: dict[str, str | None] | None = None,
              sys_net: Path = SYS_NET) -> str | None:
     """The USB gadget interface that owns local_ip (this end of a connection to USB_HOST),
-    or None when the connection does not run over the tablet's USB network link."""
+    or None when local_ip is not on a USB network gadget in USB_SUBNET. This checks address
+    ownership only; use route_usb_link / _usb_route to also require the route to USB_HOST."""
     import ipaddress
     try:
         if ipaddress.ip_address(local_ip) not in ipaddress.ip_network(USB_SUBNET):
@@ -176,6 +177,47 @@ def usb_link(local_ip: str, interfaces: dict[str, str | None] | None = None,
     return None
 
 
+def route_usb_link(route_dev: str | None, route_src: str | None,
+                   sys_net: Path = SYS_NET) -> str | None:
+    """True USB gadget interface the kernel routes USB_HOST over, or None. Requires the
+    route's device to be a USB gadget and its source address to be that gadget's address in
+    USB_SUBNET, so a host route sending 10.11.99.1 off-cable (e.g. over Wi-Fi) is rejected
+    even if some other interface shares a 10.11.99.x address."""
+    import ipaddress
+    if not route_dev or not route_src:
+        return None
+    try:
+        if ipaddress.ip_address(route_src) not in ipaddress.ip_network(USB_SUBNET):
+            return None
+    except ValueError:
+        return None
+    if not _is_usb_gadget(route_dev, sys_net):
+        return None
+    if _iface_ipv4(route_dev) != route_src:
+        return None
+    return route_dev
+
+
+def _usb_route(host: str = USB_HOST) -> tuple[str | None, str | None]:
+    """(dev, src) the kernel would use to reach host, parsed from `ip -o route get`, or
+    (None, None) if it cannot be determined. Only the routing decision is trusted, not mere
+    address ownership, so overlapping 10.11.99.x assignments cannot impersonate the cable."""
+    import re
+    import shutil
+    import subprocess
+    ip = shutil.which("ip")
+    if ip is None:
+        return None, None
+    try:
+        out = subprocess.run([ip, "-o", "route", "get", host], capture_output=True, text=True,
+                             timeout=2, check=False).stdout
+    except Exception:
+        return None, None
+    dev = re.search(r"\bdev\s+(\S+)", out)
+    src = re.search(r"\bsrc\s+(\S+)", out)
+    return (dev.group(1) if dev else None, src.group(1) if src else None)
+
+
 def _open_usb_socket(host: str, port: int = 22, timeout: float = 10
                      ) -> tuple[socket.socket, bool]:
     """Connect to the USB address and say whether the socket runs over the USB cable. The
@@ -183,7 +225,9 @@ def _open_usb_socket(host: str, port: int = 22, timeout: float = 10
     sock = socket.create_connection((host, port), timeout=timeout)
     try:
         local_ip = sock.getsockname()[0]
-        return sock, usb_link(local_ip) is not None
+        route_dev, route_src = _usb_route(host)
+        verified = route_usb_link(route_dev, route_src) is not None and route_src == local_ip
+        return sock, verified
     except Exception:
         sock.close()
         raise

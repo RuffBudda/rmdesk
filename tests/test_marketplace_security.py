@@ -1,4 +1,4 @@
-"""Regression tests for the Omarchy marketplace security review (0.1.1, 0.1.2)."""
+"""Regression tests for the Omarchy marketplace security review (0.1.1, 0.1.2, 0.1.3)."""
 from __future__ import annotations
 
 import logging
@@ -231,6 +231,37 @@ def test_usb_link_refuses_a_virtual_interface(tmp_path):
     sys_net = tmp_path / "net"
     (sys_net / "br0").mkdir(parents=True)  # no device link
     assert device.usb_link("10.11.99.2", {"br0": "10.11.99.2"}, sys_net) is None
+
+
+def test_route_usb_link_requires_the_route_to_use_the_usb_gadget(tmp_path):
+    sys_net = _fake_sys_net(tmp_path, "usb0", "pci0000:00/usb1/1-2/1-2:1.0", "rndis_host")
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(device, "_iface_ipv4", lambda name: "10.11.99.2" if name == "usb0" else None)
+    try:
+        assert device.route_usb_link("usb0", "10.11.99.2", sys_net) == "usb0"
+        # same 10.11.99.x address exists on the USB gadget, but the route to 10.11.99.1
+        # goes over Wi-Fi (attacker-controlled host route): must not be trusted
+        assert device.route_usb_link("wlan0", "10.11.99.2", sys_net) is None
+        assert device.route_usb_link(None, "10.11.99.2", sys_net) is None
+        assert device.route_usb_link("usb0", "192.168.1.20", sys_net) is None
+    finally:
+        monkeypatch.undo()
+
+
+def test_open_usb_socket_is_not_verified_when_route_leaves_the_cable(monkeypatch):
+    class Sock:
+        def getsockname(self):
+            return ("10.11.99.2", 54321)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(device.socket, "create_connection", lambda *a, **kw: Sock())
+    # local address matches a USB gadget, but kernel routes 10.11.99.1 over Wi-Fi
+    monkeypatch.setattr(device, "_usb_route", lambda host=device.USB_HOST: ("wlan0", "10.11.99.2"))
+    sock, verified = device._open_usb_socket(device.USB_HOST)
+    assert verified is False
+    sock.close()
 
 
 class _PolicyClient:
